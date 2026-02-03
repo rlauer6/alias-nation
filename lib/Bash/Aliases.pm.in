@@ -1,4 +1,5 @@
 #!/usr/bin/env perl
+package Bash::Aliases;
 
 use strict;
 use warnings;
@@ -7,7 +8,6 @@ use English qw( -no_match_vars );
 use Getopt::Long qw(:config no_ignore_case);
 use Pod::Usage;
 use Text::ASCIITable;
-use Term::ANSIColor;
 use Text::Wrap;
 
 use Readonly;
@@ -25,12 +25,22 @@ Readonly::Scalar our $ALIAS_COLOR  => 'bright_white';
 Readonly::Scalar our $CMD_COLOR    => 'green';
 Readonly::Scalar our $HEADER_COLOR => 'bright_white';
 
-$Text::Wrap::columns = $MAX_COLUMN_WIDTH;  # our terminal is quite wide...
+our $VERSION = '@PACKAGE_VERSION@';
+
+caller or __PACKAGE__->main();
 
 ########################################################################
 sub _colored {
 ########################################################################
   my ( $color, $text, $enabled ) = @_;
+
+  eval {
+    require Term::ANSIColor;
+    Term::ANSIColor->import('colored');
+  };
+
+  return $text
+    if $EVAL_ERROR;
 
   return $text
     if !$enabled;
@@ -44,6 +54,7 @@ sub _init_table {
   my (%args) = @_;
 
   my ( $color, $title, $width ) = @args{qw(color title width)};
+
   $Text::Wrap::columns = $width;
 
   my $t = Text::ASCIITable->new(
@@ -230,8 +241,6 @@ sub main {
   return $SUCCESS;
 }
 
-exit main();
-
 __END__
 
 =pod
@@ -252,6 +261,8 @@ show-aliases.pl - A categorized viewer for Bash aliases
 
  # Include the 'Junk Drawer' stashed aliases
  show-aliases.pl --local
+
+L<screenshot|https://github.com/rlauer6/alias-nation/blob/main/screenshot.png>
 
 =head1 OPTIONS
 
@@ -287,11 +298,12 @@ See C<perldoc show-aliases.pl> for more details.
 
 =head1 DESCRIPTION
 
-This script parses standard Bash startup files (C<.bashrc>, C<.profile>, and C<.bash_aliases>) 
-to display aliases in a scannable ASCII table. 
+This script parses standard Bash startup files (C<.bashrc>,
+C<.profile>, and C<.bash_aliases>) to display aliases in a scannable
+ASCII table.
 
-If aliases are organized under headings (e.g., C<# Docker>) in C<.bash_aliases>, they 
-will be grouped accordingly in the output.
+If aliases are organized under headings (e.g., C<# Docker>) in
+C<.bash_aliases>, they will be grouped accordingly in the output.
 
 =head1 SHELL INTEGRATION
 

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# -*- mode: sh; -*-
+
+bash_aliases=$(perl -MBash::Aliases -e 'print $INC{"Bash/Aliases.pm"}');
+perl $bash_aliases "$@"

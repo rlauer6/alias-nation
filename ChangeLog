@@ -4,3 +4,17 @@ Tue Feb  3 10:25:47 2026  Rob Lauer  <rclauer@gmail.com>
         * README.md: new
         * VERSION: new
         * show-aliases.pl: new
+
+	[1.0.1]:
+	* VERSION: bump
+	* .gitignore: new
+	* Makefile: new
+	* README.md: generated
+	* bin/bash-aliases: new
+	* buildspec.yml: new
+	* lib/Bash/Aliases.pm.in: renamed
+	* requires: new
+	* t/00-bash-alias.t: new
+	* test-requires: new
+	* version.mk: new
+
