@@ -1,0 +1,343 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use English qw( -no_match_vars );
+use Getopt::Long qw(:config no_ignore_case);
+use Pod::Usage;
+use Text::ASCIITable;
+use Term::ANSIColor;
+use Text::Wrap;
+
+use Readonly;
+Readonly::Scalar our $MAX_COLUMN_WIDTH => 100;
+
+Readonly::Scalar our $DASH  => q{-};
+Readonly::Scalar our $EMPTY => q{};
+
+Readonly::Scalar our $SUCCESS => 0;
+Readonly::Scalar our $TRUE    => 1;
+Readonly::Scalar our $FALSE   => 0;
+
+Readonly::Scalar our $TITLE_COLOR  => 'bright_cyan';
+Readonly::Scalar our $ALIAS_COLOR  => 'bright_white';
+Readonly::Scalar our $CMD_COLOR    => 'green';
+Readonly::Scalar our $HEADER_COLOR => 'bright_white';
+
+$Text::Wrap::columns = $MAX_COLUMN_WIDTH;  # our terminal is quite wide...
+
+########################################################################
+sub _colored {
+########################################################################
+  my ( $color, $text, $enabled ) = @_;
+
+  return $text
+    if !$enabled;
+
+  return colored( $color, $text );
+}
+
+########################################################################
+sub _init_table {
+########################################################################
+  my (%args) = @_;
+
+  my ( $color, $title, $width ) = @args{qw(color title width)};
+  $Text::Wrap::columns = $width;
+
+  my $t = Text::ASCIITable->new(
+    { allowANSI   => $TRUE,
+      headingText => _colored( [$TITLE_COLOR], $title, $color )
+    }
+  );
+
+  my @table_headers = map { _colored( [$HEADER_COLOR], $_, $color ) } qw(Alias Command Category);
+
+  $t->setCols(@table_headers);
+
+  return $t;
+}
+
+########################################################################
+sub _addRow {
+########################################################################
+  my ( $t, %args ) = @_;
+  my ( $alias, $cmd, $cat, $color ) = @args{qw(alias command category color)};
+
+  $cmd = wrap( $EMPTY, $EMPTY, $cmd );
+  $cmd =~ s/\A['"](.*?)['"]\z/$1/xsm;
+
+  if ( $cmd =~ /\n/xsm ) {
+    $cmd = join "\n", map { _colored( [$CMD_COLOR], $_, $color ) } split /\n/xsm, $cmd;
+  }
+  else {
+    $cmd = _colored( [$CMD_COLOR], $cmd, $color );
+  }
+
+  $t->addRow( _colored( [$ALIAS_COLOR], $alias ), $cmd, $cat );
+
+  return;
+}
+
+########################################################################
+sub _fetch_aliases {
+########################################################################
+  my ( $category, $file_list ) = @_;
+
+  my @alias_files = map {"$ENV{HOME}/.$_"} @{$file_list};
+
+  my %aliases;
+
+  # --- Parse Files with Category Support ---
+  foreach my $file (@alias_files) {
+    my $current_category = 'General';
+
+    next
+      if !-e $file || !-r $file;
+
+    my $lines = eval {
+      open my $fh, '<', $file or next;
+      local $RS = undef;
+      my @lines = split /\n/, <$fh>;
+
+      close $fh;
+      return \@lines;
+    };
+
+    foreach my $line ( @{$lines} ) {
+
+      # Extract Category from Headings (e.g., # Docker)
+      if ( $file =~ /bash_aliases/xsm && $line =~ /\A[#]\s*([[:alnum:]\s]+)/xsm ) {
+        my $found_cat = $1;
+
+        # Ignore mode-line or purely decorative hashes
+        if ( $found_cat !~ /mode:|^-+$/xsm ) {
+          $current_category = $found_cat;
+        }
+
+        next
+          if $category && $category ne lc $found_cat;
+      }
+      # Match alias and pair it with current category
+      elsif ( $line =~ /^\s*alias\s+([^=]+)=(.*)$/xsm ) {
+        next
+          if $category && $category ne lc $current_category;
+
+        $aliases{$1} = { cmd => $2, cat => $current_category, };
+      }
+    }
+  }
+
+  return %aliases;
+}
+
+########################################################################
+sub _init_options {
+########################################################################
+  my %options = (
+    color => $TRUE,
+    width => $MAX_COLUMN_WIDTH
+  );
+
+  my @option_specs = qw(
+    help|h
+    category|C=s
+    color|c!
+    local|l
+    random|r
+    width|w=i
+  );
+
+  GetOptions( \%options, @option_specs );
+
+  if ( $options{help} ) {
+    pod2usage( { -exitval => 0, -verbose => 1 } );
+  }
+
+  $options{category} //= @ARGV ? lc $ARGV[0] : $EMPTY;
+
+  return %options;
+}
+
+########################################################################
+sub main {
+########################################################################
+
+  my %options = _init_options;
+
+  my $file_list = [qw( bashrc profile bash_aliases)];
+
+  if ( $options{local} ) {
+    push @{$file_list}, 'local-aliases';
+  }
+
+  my %aliases = _fetch_aliases( $options{category}, $file_list );
+
+  return $SUCCESS
+    if !keys %aliases;
+
+  my $title
+    = $options{random}   ? q{Alias o' the Day}
+    : $options{category} ? qq{'$options{category}' aliases}
+    :                      'Bash Aliases by Category';
+
+  my $t = _init_table(
+    title => $title,
+    color => $options{color},
+    width => $options{width},
+  );
+
+  if ( $options{random} ) {
+    my @names = keys %aliases;
+    my $pick  = $names[ rand @names ];
+
+    _addRow(
+      $t,
+      color    => $options{color},
+      alias    => $pick,
+      command  => $aliases{$pick}->{cmd},
+      category => $aliases{$pick}->{cat},
+    );
+  }
+  else {
+    # Sort by Category first, then Alias name
+    my @sorted_aliases = sort { $aliases{$a}->{cat} cmp $aliases{$b}->{cat} || $a cmp $b } keys %aliases;
+
+    my $cur_cat = $aliases{ $sorted_aliases[0] }->{cat};
+
+    foreach my $name ( sort { $aliases{$a}->{cat} cmp $aliases{$b}->{cat} || $a cmp $b } keys %aliases ) {
+      my ( $cat, $cmd ) = @{ $aliases{$name} }{qw(cat cmd)};
+
+      # add a separator between categories
+      if ( $cur_cat ne $cat ) {
+        $t->addRowLine();
+        $cur_cat = $cat;
+      }
+
+      _addRow(
+        $t,
+        color    => $options{color},
+        alias    => $name,
+        command  => $cmd,
+        category => $cat
+      );
+    }
+  }
+
+  print $t;
+
+  return $SUCCESS;
+}
+
+exit main();
+
+__END__
+
+=pod
+
+=head1 NAME
+
+show-aliases.pl - A categorized viewer for Bash aliases
+
+=head1 SYNOPSIS
+
+ show-aliases.pl [options] [category]
+
+ # Show all aliases
+ show-aliases.pl
+
+ # Show only Docker aliases
+ show-aliases.pl -C Docker
+
+ # Include the 'Junk Drawer' stashed aliases
+ show-aliases.pl --local
+
+=head1 OPTIONS
+
+=over 4
+
+=item B<--help, -h>
+
+Display this help documentation.
+
+=item B<--category, -C>
+
+Filter the output by a specific category found in C<~/.bash_aliases>.
+
+=item B<--color, --no-color, -c>
+
+Enable or disable ANSI colorized output. Defaults to enabled.
+
+=item B<--local, -l>
+
+Include C<~/.local-aliases> (the "Junk Drawer") in the output.
+
+=item B<--random, -r>
+
+Select and display a single "Alias o' the Day" for periodic review.
+
+=item B<--width, -w>
+
+Set the manual word-wrap width for the command column. Default is 100.
+
+=back
+
+See C<perldoc show-aliases.pl> for more details.
+
+=head1 DESCRIPTION
+
+This script parses standard Bash startup files (C<.bashrc>, C<.profile>, and C<.bash_aliases>) 
+to display aliases in a scannable ASCII table. 
+
+If aliases are organized under headings (e.g., C<# Docker>) in C<.bash_aliases>, they 
+will be grouped accordingly in the output.
+
+=head1 SHELL INTEGRATION
+
+To use the "Junk Drawer" workflow, add the following function to your 
+C<~/.bashrc> or C<~/.functions> file:
+
+  stash() {
+      local name="$1"
+      shift
+      local cmd="$*"
+
+      if [[ -z "$name" || -z "$cmd" ]]; then
+          echo "Usage: stash <name> <command>" >&2
+          return 1
+      fi
+
+      # 1. Enable for the current shell immediately
+      alias "$name"="$cmd"
+
+      # 2. Append to the junk drawer as a comment
+      {
+          echo "# Added: $(date +%Y-%m-%d) in $PWD"
+          echo "# alias $name='$cmd'"
+          echo ""
+      } >> "$HOME/.local-aliases"
+
+      echo "Nugget '$name' active and stashed in ~/.local-aliases"
+  }
+
+=head1 THE JUNK DRAWER WORKFLOW
+
+The "Junk Drawer" (F<~/.local-aliases>) handles project-specific
+commands that are too repetitive to type but too specialized for the
+permanent toolbox (F<~/.bash_aliases>) that are automatically loaded
+when enter a new shell.
+
+By using the C<stash> function, you create a "Desire Path" of automation 
+that can be reviewed later. Use C<show-aliases.pl --local> 
+to view these stashed nuggets.
+
+=head1 AUTHOR
+
+Rob Lauer - <rlauer@treasurersbriefcase.com>
+
+=head1 SEE ALSO
+
+L<Text::ASCIITable>, L<Term::ANSIColor>, L<Text::Wrap>
+
+=cut

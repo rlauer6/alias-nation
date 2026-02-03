@@ -1,0 +1,6 @@
+Tue Feb  3 10:25:47 2026  Rob Lauer  <rclauer@gmail.com>
+
+	[1.0.0]: BigBang
+        * README.md: new
+        * VERSION: new
+        * show-aliases.pl: new
